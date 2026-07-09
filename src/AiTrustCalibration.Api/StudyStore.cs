@@ -4,6 +4,8 @@ namespace AiTrustCalibration.Api;
 
 public sealed class StudyStore
 {
+    private const int RequiredTasksPerParticipant = 3;
+
     private readonly ConcurrentDictionary<Guid, Participant> _participants = new();
     private readonly ConcurrentDictionary<Guid, StudyTask> _tasks = new();
     private readonly ConcurrentDictionary<Guid, AiRun> _runs = new();
@@ -39,6 +41,12 @@ public sealed class StudyStore
     }
 
     public StudyTask? GetTask(Guid taskId) => _tasks.GetValueOrDefault(taskId);
+
+    public IReadOnlyList<StudyTask> GetTasksForParticipant(Guid participantId) =>
+        _tasks.Values
+            .Where(x => x.ParticipantId == participantId)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToArray();
 
     public AiRun AddRun(AiRun run)
     {
@@ -106,6 +114,13 @@ public sealed class StudyStore
             if (participant.PostSurvey is not null)
             {
                 throw new InvalidOperationException("Post-survey has already been submitted.");
+            }
+
+            var tasks = GetTasksForParticipant(participantId);
+            if (tasks.Count != RequiredTasksPerParticipant || tasks.Any(task => !CanReveal(task.Id)))
+            {
+                throw new InvalidOperationException(
+                    "Post-survey requires exactly three tasks with all blind answers evaluated.");
             }
 
             participant.PostSurvey = survey;
