@@ -39,14 +39,10 @@ public sealed class AiRunService
             return new GenerationSummaryDto(task.Id, existingAssignments.Count, Array.Empty<GenerationFailureDto>());
         }
 
-        var readyProviders = _providers.Where(x => x.Ready).ToArray();
-        if (readyProviders.Length == 0)
-        {
-            throw new InvalidOperationException("No AI provider is ready.");
-        }
-
+        var readyProviders = GetGenerationProviders();
         var request = new AiGenerationRequest(task.Prompt, _options.ResearchInstruction);
-        var generationTasks = readyProviders.Select(provider => GenerateOneAsync(provider, task.Id, request, cancellationToken));
+        var generationTasks = readyProviders.Select(provider =>
+            GenerateOneAsync(provider, task.Id, request, cancellationToken));
         var completed = await Task.WhenAll(generationTasks);
 
         var successfulRuns = completed
@@ -54,9 +50,10 @@ public sealed class AiRunService
             .Select(x => x.Run)
             .ToArray();
 
-        if (successfulRuns.Length == 0)
+        if (successfulRuns.Length < 2)
         {
-            throw new InvalidOperationException("All AI provider calls failed.");
+            throw new InvalidOperationException(
+                "Blind comparison requires at least two successful provider runs. No blind assignments were created.");
         }
 
         Shuffle(successfulRuns);
@@ -72,10 +69,38 @@ public sealed class AiRunService
         var storedAssignments = _store.SetAssignmentsOnce(task.Id, assignments);
         var failures = completed
             .Where(x => !x.Run.Succeeded)
-            .Select(x => new GenerationFailureDto(x.Run.ProviderKey, x.Run.Error ?? "Unknown provider error."))
+            .Select(x => new GenerationFailureDto(
+                x.Run.ProviderKey,
+                x.Run.Error ?? "Unknown provider error."))
             .ToArray();
 
         return new GenerationSummaryDto(task.Id, storedAssignments.Count, failures);
+    }
+
+    private IAiProvider[] GetGenerationProviders()
+    {
+        var realProviders = _providers
+            .Where(x => x.Ready && !IsMock(x))
+            .ToArray();
+
+        if (realProviders.Length == 1)
+        {
+            throw new InvalidOperationException(
+                "Exactly one real AI provider is ready. Configure at least two real providers or disable the real provider to use local mock flow.");
+        }
+
+        if (realProviders.Length >= 2)
+        {
+            return realProviders;
+        }
+
+        var mockProviders = _providers.Where(x => x.Ready && IsMock(x)).ToArray();
+        if (mockProviders.Length < 2)
+        {
+            throw new InvalidOperationException("No valid provider set is ready for blind comparison.");
+        }
+
+        return mockProviders;
     }
 
     private async Task<(IAiProvider Provider, AiRun Run)> GenerateOneAsync(
@@ -130,6 +155,9 @@ public sealed class AiRunService
             return (provider, run);
         }
     }
+
+    private static bool IsMock(IAiProvider provider) =>
+        provider.Key.StartsWith("mock-", StringComparison.Ordinal);
 
     private static void Shuffle<T>(T[] items)
     {
