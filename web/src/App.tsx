@@ -21,6 +21,8 @@ type EvaluationDraft = {
   rationale: string;
 };
 
+const TASKS_PER_PARTICIPANT = 3;
+
 const emptyEvaluation = (): EvaluationDraft => ({
   severity: 0,
   verificationBurden: 0,
@@ -40,6 +42,7 @@ function App() {
   const [step, setStep] = useState<Step>("pre");
   const [participantId, setParticipantId] = useState("");
   const [taskId, setTaskId] = useState("");
+  const [completedTaskCount, setCompletedTaskCount] = useState(0);
   const [blindTask, setBlindTask] = useState<BlindTask | null>(null);
   const [reveal, setReveal] = useState<RevealItem[]>([]);
   const [activeLabel, setActiveLabel] = useState("");
@@ -112,8 +115,19 @@ function App() {
 
       const items = await revealTask(taskId);
       setReveal(items);
+      setCompletedTaskCount((count) => count + 1);
       setStep("reveal");
     });
+  }
+
+  function startNextTask() {
+    setTaskId("");
+    setBlindTask(null);
+    setReveal([]);
+    setActiveLabel("");
+    setDrafts({});
+    setError("");
+    setStep("task");
   }
 
   async function handlePostSurvey(event: FormEvent<HTMLFormElement>) {
@@ -132,6 +146,7 @@ function App() {
 
   const activeAnswer = blindTask?.answers.find((answer) => answer.label === activeLabel);
   const activeDraft = activeLabel ? drafts[activeLabel] : undefined;
+  const currentTaskNumber = Math.min(completedTaskCount + 1, TASKS_PER_PARTICIPANT);
 
   return (
     <main className="shell">
@@ -139,14 +154,14 @@ function App() {
         <p className="eyebrow">AI Trust Calibration · pilot v0</p>
         <h1>Не «верите ли вы ИИ», а насколько точно вы оцениваете риск ошибки?</h1>
         <p>
-          Вы дадите профессиональную задачу, заранее зафиксируете критерии и вслепую оцените
-          несколько ответов. Названия моделей раскроются только после оценок.
+          Вы дадите три профессиональные задачи, заранее зафиксируете критерии и вслепую оцените
+          несколько ответов. Названия моделей раскроются только после оценок каждой задачи.
         </p>
       </header>
 
       <div className="stepbar">
         <span className={step === "pre" ? "current" : ""}>1. До эксперимента</span>
-        <span className={step === "task" ? "current" : ""}>2. Ваша задача</span>
+        <span className={step === "task" ? "current" : ""}>2. Задача {currentTaskNumber}/3</span>
         <span className={step === "blind" ? "current" : ""}>3. Слепая оценка</span>
         <span className={step === "reveal" ? "current" : ""}>4. Раскрытие</span>
       </div>
@@ -195,7 +210,7 @@ function App() {
 
       {step === "task" && (
         <form className="card form" onSubmit={handleTask}>
-          <h2>Дайте реальную профессиональную задачу</h2>
+          <h2>Задача {currentTaskNumber} из {TASKS_PER_PARTICIPANT}</h2>
           <p className="hint">
             Не загадку и не ловушку для нейросети. Задачу, которую вы действительно могли бы
             передать интеллектуальному помощнику и способны проверить сами.
@@ -307,7 +322,7 @@ function App() {
 
       {step === "reveal" && (
         <section className="card form">
-          <h2>Модели раскрыты</h2>
+          <h2>Модели для задачи {completedTaskCount} раскрыты</h2>
           <div className="reveal-grid">
             {reveal.map((item) => (
               <article className="reveal-item" key={item.label}>
@@ -318,42 +333,53 @@ function App() {
               </article>
             ))}
           </div>
-          <form className="form nested" onSubmit={handlePostSurvey}>
-            <label>
-              Теперь оцените вероятность существенной ошибки современной сильной модели, 0–100%
-              <input name="posteriorErrorEstimate" type="number" min="0" max="100" required />
-            </label>
-            <label>
-              Как теперь вы считаете правильным проверять ответы?
-              <select name="verificationStrategy" required defaultValue="risk-based">
-                <option value="all-ai">Любой AI-ответ нужно полностью проверять</option>
-                <option value="model-based">Глубина проверки должна зависеть от модели</option>
-                <option value="risk-based">Прежде всего от цены ошибки и типа задачи</option>
-                <option value="less-than-before">В целом буду проверять меньше</option>
-                <option value="more-than-before">В целом буду проверять больше</option>
-              </select>
-            </label>
-            <label>
-              Как изменилось отношение к надёжности AI?
-              <select name="trustChange" required defaultValue="recalibrated">
-                <option value="unchanged">Не изменилось</option>
-                <option value="recalibrated">Стало более дифференцированным</option>
-                <option value="more-trust">Доверия стало больше</option>
-                <option value="less-trust">Доверия стало меньше</option>
-              </select>
-            </label>
-            <label>
-              Свободный комментарий
-              <textarea name="comment" rows={4} />
-            </label>
-            <button disabled={busy}>Завершить эксперимент</button>
-          </form>
+
+          {completedTaskCount < TASKS_PER_PARTICIPANT ? (
+            <>
+              <div className="notice">
+                Оценки этой задачи зафиксированы. Впереди ещё {TASKS_PER_PARTICIPANT - completedTaskCount}.
+              </div>
+              <button type="button" onClick={startNextTask}>Перейти к задаче {completedTaskCount + 1}</button>
+            </>
+          ) : (
+            <form className="form nested" onSubmit={handlePostSurvey}>
+              <h2>После трёх слепых сравнений</h2>
+              <label>
+                Теперь оцените вероятность существенной ошибки современной сильной модели, 0–100%
+                <input name="posteriorErrorEstimate" type="number" min="0" max="100" required />
+              </label>
+              <label>
+                Как теперь вы считаете правильным проверять ответы?
+                <select name="verificationStrategy" required defaultValue="risk-based">
+                  <option value="all-ai">Любой AI-ответ нужно полностью проверять</option>
+                  <option value="model-based">Глубина проверки должна зависеть от модели</option>
+                  <option value="risk-based">Прежде всего от цены ошибки и типа задачи</option>
+                  <option value="less-than-before">В целом буду проверять меньше</option>
+                  <option value="more-than-before">В целом буду проверять больше</option>
+                </select>
+              </label>
+              <label>
+                Как изменилось отношение к надёжности AI?
+                <select name="trustChange" required defaultValue="recalibrated">
+                  <option value="unchanged">Не изменилось</option>
+                  <option value="recalibrated">Стало более дифференцированным</option>
+                  <option value="more-trust">Доверия стало больше</option>
+                  <option value="less-trust">Доверия стало меньше</option>
+                </select>
+              </label>
+              <label>
+                Свободный комментарий
+                <textarea name="comment" rows={4} />
+              </label>
+              <button disabled={busy}>Завершить эксперимент</button>
+            </form>
+          )}
         </section>
       )}
 
       {step === "done" && (
         <section className="card done">
-          <h2>Спасибо. Оценки зафиксированы.</h2>
+          <h2>Спасибо. Оценки трёх задач зафиксированы.</h2>
           <p>
             Пилот нужен прежде всего для проверки методики. Его результаты не должны смешиваться с
             основной выборкой после фиксации protocol v1.
