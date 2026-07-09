@@ -30,8 +30,6 @@ app.UseCors();
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", phase = "pilot" }));
 
-app.MapGet("/api/providers", (AiRunService aiRuns) => Results.Ok(aiRuns.GetProviderStatuses()));
-
 app.MapPost("/api/participants", (CreateParticipantRequest request, StudyStore store) =>
 {
     if (!InPercentRange(request.PriorErrorEstimate))
