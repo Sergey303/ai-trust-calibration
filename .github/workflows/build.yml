@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: windows-latest
@@ -14,8 +17,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Restore backend
-        run: dotnet restore src/AiTrustCalibration.Api/AiTrustCalibration.Api.csproj
+      - name: Restore backend and reject high or critical NuGet advisories
+        run: dotnet restore src/AiTrustCalibration.Api/AiTrustCalibration.Api.csproj -p:NuGetAudit=true -p:NuGetAuditMode=all "-p:WarningsAsErrors=NU1903;NU1904"
       - name: Build backend
         run: dotnet build src/AiTrustCalibration.Api/AiTrustCalibration.Api.csproj --configuration Release --no-restore
 
@@ -29,7 +32,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install frontend dependencies
-        run: npm install
+      - name: Install exact locked frontend dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Reject high or critical npm advisories
+        run: npm audit --audit-level=high
+      - name: Verify npm registry signatures and provenance
+        run: npm audit signatures
       - name: Build frontend
         run: npm run build
